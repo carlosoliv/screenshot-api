@@ -1,7 +1,6 @@
 import os
 import uuid
 import logging
-import traceback
 import sys
 from typing import List
 from fastapi import FastAPI, Request
@@ -38,8 +37,24 @@ def upload_to_gcs(file_path: str) -> str:
     blob_name = os.path.basename(file_path)
     blob = bucket.blob(blob_name)
     blob.upload_from_filename(file_path)
-    os.remove(file_path)
     return f"https://storage.googleapis.com/{BUCKET_NAME}/{blob_name}"
+
+
+async def capture_screenshot(
+    browser,
+    url: str,
+    viewport: dict,
+    file_path: str,
+    *,
+    is_mobile: bool = False,
+) -> None:
+    page = await browser.new_page(viewport=viewport, is_mobile=is_mobile)
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(5000)
+        await page.screenshot(path=file_path, full_page=True)
+    finally:
+        await page.close()
 
 
 async def capture(urls: List[str]):
@@ -53,33 +68,37 @@ async def capture(urls: List[str]):
         try:
             for url in urls:
                 page_id = uuid.uuid4().hex[:8]
+                d_path = f"/tmp/{page_id}-desktop.png"
+                m_path = f"/tmp/{page_id}-mobile.png"
                 logger.info("Capturing %s", url)
 
-                # Desktop
-                page = await browser.new_page(viewport=DESKTOP)
                 try:
-                    await page.goto(url, wait_until="networkidle", timeout=60000)
-                    await page.wait_for_timeout(5000)
-                    d_path = f"/tmp/{page_id}-desktop.png"
-                    await page.screenshot(path=d_path, full_page=True)
-                finally:
-                    await page.close()
+                    await capture_screenshot(browser, url, DESKTOP, d_path)
+                    await capture_screenshot(
+                        browser,
+                        url,
+                        MOBILE,
+                        m_path,
+                        is_mobile=True,
+                    )
 
-                # Mobile
-                page = await browser.new_page(viewport=MOBILE, is_mobile=True)
-                try:
-                    await page.goto(url, wait_until="networkidle", timeout=60000)
-                    await page.wait_for_timeout(5000)
-                    m_path = f"/tmp/{page_id}-mobile.png"
-                    await page.screenshot(path=m_path, full_page=True)
+                    results.append({
+                        "url": url,
+                        "desktop": upload_to_gcs(d_path),
+                        "mobile": upload_to_gcs(m_path),
+                    })
+                except Exception as exc:
+                    logger.exception("Failed to capture %s", url)
+                    results.append({
+                        "url": url,
+                        "error": str(exc),
+                    })
                 finally:
-                    await page.close()
-
-                results.append({
-                    "url": url,
-                    "desktop": upload_to_gcs(d_path),
-                    "mobile": upload_to_gcs(m_path),
-                })
+                    for file_path in (d_path, m_path):
+                        try:
+                            os.remove(file_path)
+                        except FileNotFoundError:
+                            pass
         finally:
             await browser.close()
     return results
@@ -94,8 +113,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         request.url.path,
         exc_info=True,
     )
-    # optional: also print raw traceback
-    traceback.print_exc(file=sys.stderr)
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal Server Error", "error": str(exc)},
