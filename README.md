@@ -37,21 +37,22 @@ the URL for any image that uploaded successfully and includes an `error` field.
 
 ## Cleanup endpoint
 
-`POST /cleanup` accepts an array containing `/screenshot` response objects:
+`POST /cleanup` accepts the `results` array produced by `/screenshot`. This is the
+format sent by an n8n expression such as
+`{{ $('HTTP Request Get Screenshots1').item.json.results }}`:
 
 ```json
 [
   {
-    "results": [
-      {
-        "url": "https://example.com",
-        "desktop": "https://storage.googleapis.com/my-bucket/0123abcd-desktop.png",
-        "mobile": "https://storage.googleapis.com/my-bucket/0123abcd-mobile.png"
-      }
-    ]
+    "url": "https://example.com",
+    "desktop": "https://storage.googleapis.com/my-bucket/0123abcd-desktop.png",
+    "mobile": "https://storage.googleapis.com/my-bucket/0123abcd-mobile.png"
   }
 ]
 ```
+
+For compatibility, the endpoint also accepts the wrapped array format containing
+objects with a `results` property.
 
 Before deleting anything, the endpoint validates every image URL. It only accepts
 HTTPS URLs on `storage.googleapis.com` for the configured `BUCKET_NAME`, using the

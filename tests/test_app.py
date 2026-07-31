@@ -196,24 +196,31 @@ def test_cleanup_endpoint_accepts_wrapped_screenshot_response(fake_storage):
     assert response.json()["batches"] == 1
 
 
-def test_cleanup_endpoint_rejects_unwrapped_screenshot_response(fake_storage):
-    result = cleanup_result()
+def test_cleanup_endpoint_accepts_direct_n8n_results_array(fake_storage):
+    _, storage_bucket = fake_storage
     client = TestClient(app.app)
+    payload = [
+        {
+            "url": f"https://example.com/{index}",
+            "desktop": (
+                f"https://storage.googleapis.com/{app.BUCKET_NAME}/"
+                f"{index:08x}-desktop.png"
+            ),
+            "mobile": (
+                f"https://storage.googleapis.com/{app.BUCKET_NAME}/"
+                f"{index:08x}-mobile.png"
+            ),
+        }
+        for index in range(1, 4)
+    ]
 
-    response = client.post(
-        "/cleanup",
-        json={
-            "results": [
-                {
-                    "url": result.url,
-                    "desktop": result.desktop,
-                    "mobile": result.mobile,
-                }
-            ]
-        },
-    )
+    response = client.post("/cleanup", json=payload)
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 6
+    assert response.json()["batches"] == 1
+    assert len(storage_bucket.delete_calls) == 1
+    assert len(storage_bucket.delete_calls[0]) == 6
 
 
 def test_cleanup_logs_request_batch_and_completion(fake_storage, caplog):
@@ -224,7 +231,8 @@ def test_cleanup_logs_request_batch_and_completion(fake_storage, caplog):
 
     messages = [record.getMessage() for record in caplog.records]
     assert (
-        "Received cleanup request with 1 payload object(s) and 1 screenshot results"
+        "Received cleanup request with 1 top-level item(s), 1 wrapped payload(s), "
+        "and 1 screenshot results"
         in messages
     )
     assert any(message.startswith("Starting cleanup batch 1/1") for message in messages)

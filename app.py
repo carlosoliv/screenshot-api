@@ -4,7 +4,7 @@ import logging
 import math
 import re
 import sys
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 from urllib.parse import unquote, urlsplit
 
 from fastapi import FastAPI, Request
@@ -51,6 +51,9 @@ class CleanupResult(BaseModel):
 
 class CleanupRequest(BaseModel):
     results: List[CleanupResult]
+
+
+CleanupPayloadItem = Union[CleanupResult, CleanupRequest]
 
 
 def get_storage_resources():
@@ -273,15 +276,22 @@ async def screenshot(req: ScreenshotRequest):
 
 
 @app.post("/cleanup")
-def cleanup(req: List[CleanupRequest]):
-    results = [
-        result
-        for cleanup_request in req
-        for result in cleanup_request.results
-    ]
+def cleanup(req: List[CleanupPayloadItem]):
+    results = []
+    wrapped_payloads = 0
+
+    for payload_item in req:
+        if isinstance(payload_item, CleanupRequest):
+            wrapped_payloads += 1
+            results.extend(payload_item.results)
+        else:
+            results.append(payload_item)
+
     logger.info(
-        "Received cleanup request with %d payload object(s) and %d screenshot results",
+        "Received cleanup request with %d top-level item(s), %d wrapped payload(s), "
+        "and %d screenshot results",
         len(req),
+        wrapped_payloads,
         len(results),
     )
 
