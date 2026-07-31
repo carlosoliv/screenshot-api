@@ -106,7 +106,7 @@ def test_empty_cleanup_does_not_initialize_cloud_storage(monkeypatch):
     monkeypatch.setattr(app, "storage_client", None)
     monkeypatch.setattr(app, "bucket", None)
 
-    response = app.cleanup(app.CleanupRequest(results=[]))
+    response = app.cleanup([app.CleanupRequest(results=[])])
 
     assert response["status"] == "completed"
     assert response["attempted"] == 0
@@ -150,7 +150,7 @@ def test_cleanup_rejects_all_targets_before_deleting(fake_storage):
         ]
     )
 
-    response = app.cleanup(request)
+    response = app.cleanup([request])
 
     assert response.status_code == 400
     assert client.batch_entries == 0
@@ -160,7 +160,7 @@ def test_cleanup_rejects_all_targets_before_deleting(fake_storage):
 def test_cleanup_returns_success_summary(fake_storage):
     request = app.CleanupRequest(results=[cleanup_result()])
 
-    response = app.cleanup(request)
+    response = app.cleanup([request])
 
     assert response == {
         "status": "completed",
@@ -172,9 +172,33 @@ def test_cleanup_returns_success_summary(fake_storage):
     }
 
 
-def test_cleanup_endpoint_accepts_screenshot_response(fake_storage):
+def test_cleanup_endpoint_accepts_wrapped_screenshot_response(fake_storage):
     client = TestClient(app.app)
     result = cleanup_result()
+
+    response = client.post(
+        "/cleanup",
+        json=[
+            {
+                "results": [
+                    {
+                        "url": result.url,
+                        "desktop": result.desktop,
+                        "mobile": result.mobile,
+                    }
+                ]
+            }
+        ],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 2
+    assert response.json()["batches"] == 1
+
+
+def test_cleanup_endpoint_rejects_unwrapped_screenshot_response(fake_storage):
+    result = cleanup_result()
+    client = TestClient(app.app)
 
     response = client.post(
         "/cleanup",
@@ -189,19 +213,20 @@ def test_cleanup_endpoint_accepts_screenshot_response(fake_storage):
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["deleted"] == 2
-    assert response.json()["batches"] == 1
+    assert response.status_code == 422
 
 
 def test_cleanup_logs_request_batch_and_completion(fake_storage, caplog):
     request = app.CleanupRequest(results=[cleanup_result()])
 
     with caplog.at_level(logging.INFO, logger="screenshot-api"):
-        app.cleanup(request)
+        app.cleanup([request])
 
     messages = [record.getMessage() for record in caplog.records]
-    assert "Received cleanup request with 1 screenshot results" in messages
+    assert (
+        "Received cleanup request with 1 payload object(s) and 1 screenshot results"
+        in messages
+    )
     assert any(message.startswith("Starting cleanup batch 1/1") for message in messages)
     assert "Cleanup completed: deleted 2 objects in 1 batches" in messages
 
@@ -213,7 +238,7 @@ def test_cleanup_reports_batch_failure(monkeypatch):
     monkeypatch.setattr(app, "bucket", storage_bucket)
     request = app.CleanupRequest(results=[cleanup_result()])
 
-    response = app.cleanup(request)
+    response = app.cleanup([request])
     body = json.loads(response.body)
 
     assert response.status_code == 502

@@ -273,15 +273,21 @@ async def screenshot(req: ScreenshotRequest):
 
 
 @app.post("/cleanup")
-def cleanup(req: CleanupRequest):
+def cleanup(req: List[CleanupRequest]):
+    results = [
+        result
+        for cleanup_request in req
+        for result in cleanup_request.results
+    ]
     logger.info(
-        "Received cleanup request with %d screenshot results",
-        len(req.results),
+        "Received cleanup request with %d payload object(s) and %d screenshot results",
+        len(req),
+        len(results),
     )
 
     try:
         blob_names, duplicates_ignored, skipped_records = collect_cleanup_targets(
-            req.results
+            results
         )
     except ValueError as exc:
         logger.warning("Rejected cleanup request: %s", exc)

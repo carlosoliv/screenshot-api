@@ -37,18 +37,20 @@ the URL for any image that uploaded successfully and includes an `error` field.
 
 ## Cleanup endpoint
 
-`POST /cleanup` accepts the complete response produced by `/screenshot`:
+`POST /cleanup` accepts an array containing `/screenshot` response objects:
 
 ```json
-{
-  "results": [
-    {
-      "url": "https://example.com",
-      "desktop": "https://storage.googleapis.com/my-bucket/0123abcd-desktop.png",
-      "mobile": "https://storage.googleapis.com/my-bucket/0123abcd-mobile.png"
-    }
-  ]
-}
+[
+  {
+    "results": [
+      {
+        "url": "https://example.com",
+        "desktop": "https://storage.googleapis.com/my-bucket/0123abcd-desktop.png",
+        "mobile": "https://storage.googleapis.com/my-bucket/0123abcd-mobile.png"
+      }
+    ]
+  }
+]
 ```
 
 Before deleting anything, the endpoint validates every image URL. It only accepts
